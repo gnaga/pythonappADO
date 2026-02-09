@@ -1,0 +1,375 @@
+trigger:
+- main
+
+
+pool:
+  name: Default
+  demands:
+  - Agent.Name -equals nagag-mac
+
+
+variables:
+  # Predefined Azure Pipelines variables. There's no need to modify them.
+  JF_GIT_PROJECT: $(System.TeamProject)
+  JF_GIT_REPO: $(Build.Repository.Name)
+  JF_GIT_API_ENDPOINT: $(System.CollectionUri)
+  JF_GIT_BASE_BRANCH: $(Build.SourceBranchName)
+  JF_GIT_OWNER: $(System.TeamProject)
+  JF_GIT_PROVIDER: 'azureRepos'
+  PYTHON_VERSION: '3.11'
+  tag: '$(Build.BuildId)'
+  JF_URL: 'https://psemea.jfrog.io'
+  JF_DOCKER_REGISTRY: 'nd-docker'
+  JF_AZURE_OIDC: 'nagagoidc'
+  JF_DOCKER_URL: 'psemea.jfrog.io'
+  DOCKER_IMAGE: 'myflaskapp'
+  JF_PYTHON_REPO: 'nd-pypi'
+
+jobs:
+- deployment: FLASK_DOCKER_PIPELINE
+  displayName: Flask App - Build Wheel, Docker Build & Push
+  environment: 'gcp'  # Just the name, remove resourceType/Name
+
+  pool:
+    name: Default
+    demands:
+    - Agent.Name -equals nagag-mac
+
+  strategy:
+    runOnce:
+      deploy:  
+          steps:
+            - checkout: self
+
+            # ---------------------------------------------------------------
+            # Step 1: Authenticate with JFrog via OIDC
+            # ---------------------------------------------------------------
+            - task: JfrogCliV2@1
+              displayName: JFrog CLI - Verify OIDC Connection
+              inputs:
+                jfrogPlatformConnection: $(JF_AZURE_OIDC)
+                command: |
+                  jf c show
+                  jf rt ping
+            # ---------------------------------------------------------------
+            # Optional: Display OIDC User Info
+            # ---------------------------------------------------------------
+
+            - task: Bash@3
+              displayName: Display OIDC User Info
+              inputs:
+                targetType: 'inline'
+                script: |
+                  echo "OIDC Username (from output): $(oidc_user)"
+                  echo "OIDC Token (from output): $(oidc_token)"
+
+            # ---------------------------------------------------------------
+            # Step 2: Get Python Version using task
+            # ---------------------------------------------------------------
+            # - task: UsePythonVersion@0
+            #   displayName: Set up Python $(PYTHON_VERSION)
+            #   inputs:
+            #     versionSpec: '$(PYTHON_VERSION)'
+            #     addToPath: true
+
+            # ---------------------------------------------------------------
+            # Step 2: Activate Python Virtual Environment and Install Build Tools
+            # ---------------------------------------------------------------
+            - task: Bash@3
+              displayName: Activate Python Venv & Install Build Tools
+              inputs:
+                targetType: 'inline'
+                script: |
+                  echo "Activating Python virtual environment from ~/.venv..."
+                  source ~/.venv/bin/activate
+                  echo "Python path: $(which python)"
+                  echo "Python version: $(python --version)"
+                  echo "##vso[task.prependpath]$HOME/.venv/bin"
+                  echo "Installing build tools..."
+                  python -m pip install --upgrade pip
+                  pip install setuptools wheel
+
+
+            # ---------------------------------------------------------------
+            # Step 3: Install dependencies via JFrog CLI (pulls from nd-python)
+            # ---------------------------------------------------------------
+            - task: JfrogCliV2@1
+              displayName: Install Python Dependencies via JFrog
+              inputs:
+                jfrogPlatformConnection: $(JF_AZURE_OIDC)
+                command: |
+                  jf pipc --repo-resolve=$(JF_PYTHON_REPO) --repo-deploy=$(JF_PYTHON_REPO)
+                  jf pip install -r requirements.txt --build-name=$(Build.DefinitionName) --build-number=$(Build.BuildId) --module=myflaskapp --project=nd
+
+            # ---------------------------------------------------------------
+            # Step 4: Run Jfrog Curation Audit check
+            # ---------------------------------------------------------------
+            # - task: PowerShell@2
+            #   inputs:
+            #     targetType: 'inline'
+            #     script: |
+            #       $url = "$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_apis/build/definitions?api-version=7.0"
+            #       Write-Host "URL: $url"
+            #       # Use the environment variable in the script
+            #       $pipeline = Invoke-RestMethod -Uri $url -Headers @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
+            #       Write-Host "Pipeline = $($pipeline | ConvertTo-Json -Depth 100)"
+            #   env:
+            #     # Map the Azure DevOps variable to an environment variable name
+            #     SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+            - task: JfrogCliV2@1
+              displayName: Run Jfrog Curation Audit check
+              inputs:
+                jfrogPlatformConnection: $(JF_AZURE_OIDC)
+                command: |
+                  jf pipc --repo-resolve=$(JF_PYTHON_REPO) --repo-deploy=$(JF_PYTHON_REPO)
+                  jf curation-audit .  
+
+            # ---------------------------------------------------------------
+            # Step 5: Download and Run Frogbot
+            # ---------------------------------------------------------------
+                 
+            - task: CmdLine@2
+              displayName: 'Download and Run Frogbot'
+              env:
+                # [Mandatory]
+                # JFrog platform URL (This functionality requires version 3.29.0 or above of Xray)
+                JF_URL: $(JF_URL)
+
+                # [Mandatory if JF_USER and JF_PASSWORD are not provided]
+                # JFrog access token with 'read' permissions for Xray
+                JF_ACCESS_TOKEN: $(oidc_token)
+
+                # [Mandatory if JF_ACCESS_TOKEN is not provided]
+                # JFrog user and password with 'read' permissions for Xray
+                # JF_USER: $JF_USER
+                # JF_PASSWORD: $JF_PASSWORD
+
+                # [Mandatory]
+                # Azure Repos: use pipeline OAuth token. Enable "Allow scripts to access the OAuth token" in pipeline settings.
+                JF_GIT_TOKEN: $(System.AccessToken)
+                # [Optional]
+                JFROG_CLI_LOG_LEVEL: DEBUG
+
+                # [Optional]
+                # By default, the Frogbot workflows download the Frogbot executable as well as other tools
+                # needed from https://releases.jfrog.io
+                # If the machine that runs Frogbot has no access to the internet, follow these steps to allow the
+                # executable to be downloaded from an Artifactory instance, which the machine has access to:
+                #
+                # 1. Login to the Artifactory UI, with a user who has admin credentials.
+                # 2. Create a Remote Repository with the following properties set.
+                #    Under the 'Basic' tab:
+                #       Package Type: Generic
+                #       URL: https://releases.jfrog.io
+                #    Under the 'Advanced' tab:
+                #       Uncheck the 'Store Artifacts Locally' option
+                # 3. Set the value of the 'JF_RELEASES_REPO' variable with the Repository Key you created.
+                # JF_RELEASES_REPO: ""
+
+                ###########################################################################
+                ##   If your project uses a 'frogbot-config.yml' file, you should define ##
+                ##   the following variables inside the file, instead of here.           ##
+                ###########################################################################
+
+                # [Mandatory if the two conditions below are met]
+                # 1. The project uses yarn 2, NuGet, or .NET to download its dependencies
+                # 2. The `installCommand` variable isn't set in your frogbot-config.yml file.
+                #
+                # The command that installs the project dependencies (e.g "nuget restore")
+                # JF_INSTALL_DEPS_CMD: "pnpm install --ignore-scripts --lockfile-only"
+
+                # [Optional, default: "."]
+                # Relative path to the root of the project in the Git repository
+                # JF_WORKING_DIR: maven
+
+                # [Default: "*.git*;*node_modules*;*target*;*venv*;*test*"]
+                # List of exclusion patterns (utilizing wildcards) for excluding paths in the source code of the Git repository during SCA scans.
+                # JF_PATH_EXCLUSIONS: "*.git*;*node_modules*;*target*;*venv*;*test*"
+
+                # [Optional]
+                # Xray Watches. Learn more about them here: https://www.jfrog.com/confluence/display/JFROG/Configuring+Xray+Watches
+                # JF_WATCHES: <watch-1>,<watch-2>...<watch-n>
+
+                # [Optional]
+                # JFrog project. Learn more about it here: https://www.jfrog.com/confluence/display/JFROG/Projects
+                # JF_PROJECT: <project-key>
+
+                # [Optional, default: "FALSE"]
+                # Displays all existing vulnerabilities, including the ones that were added by the pull request.
+                JF_INCLUDE_ALL_VULNERABILITIES: "TRUE"
+
+                # [Optional, default: "FALSE"]
+                # When adding new comments on pull requests, keep old comments that were added by previous scans.
+                JF_AVOID_PREVIOUS_PR_COMMENTS_DELETION: "TRUE"
+
+                # [Optional, default: "TRUE"]
+                # Fails the Frogbot task if any security issue is found.
+                # JF_FAIL: "FALSE"
+
+                # [Optional]
+                # Relative path to a Pip requirements.txt file. If not set, the Python project's dependencies are determined and scanned using the project setup.py file.
+                # JF_REQUIREMENTS_FILE: ""
+
+                # [Optional, Default: "TRUE"]
+                # Use Gradle wrapper.
+                # JF_USE_WRAPPER: "FALSE"
+
+                # [Optional]
+                # Frogbot will download the project dependencies if they're not cached locally. To download the
+                # dependencies from a virtual repository in Artifactory, set the name of the repository. There's no
+                # need to set this value, if it is set in the frogbot-config.yml file.
+                # JF_DEPS_REPO: ""
+
+                # [Optional]
+                # Template for the branch name generated by Frogbot when creating pull requests with fixes.
+                # The template must include ${BRANCH_NAME_HASH}, to ensure that the generated branch name is unique.
+                # The template can optionally include the ${IMPACTED_PACKAGE} and ${FIX_VERSION} variables.
+                # JF_BRANCH_NAME_TEMPLATE: "frogbot-${IMPACTED_PACKAGE}-${BRANCH_NAME_HASH}-$(Build.BuildNumber)"
+
+                # [Optional]
+                # Template for the commit message generated by Frogbot when creating pull requests with fixes
+                # The template can optionally include the ${IMPACTED_PACKAGE} and ${FIX_VERSION} variables.
+                # JF_COMMIT_MESSAGE_TEMPLATE: "Upgrade ${IMPACTED_PACKAGE} to ${FIX_VERSION}-$(Build.BuildNumber)"
+
+                # [Optional]
+                # Template for the pull request title generated by Frogbot when creating pull requests with fixes.
+                # The template can optionally include the ${IMPACTED_PACKAGE} and ${FIX_VERSION} variables.
+                # JF_PULL_REQUEST_TITLE_TEMPLATE: "[🐸 Frogbot] Upgrade ${IMPACTED_PACKAGE} to ${FIX_VERSION} - $(Build.BuildNumber)"
+
+                # [Optional, Default: "FALSE"]
+                # If TRUE, Frogbot creates a single pull request with all the fixes.
+                # If FALSE, Frogbot creates a separate pull request for each fix.
+                JF_GIT_AGGREGATE_FIXES: "TRUE"
+
+                # [Optional, Default: "FALSE"]
+                # Handle vulnerabilities with fix versions only
+                # JF_FIXABLE_ONLY: "TRUE"
+
+                # [Optional]
+                # Set the minimum severity for vulnerabilities that should be fixed and commented on in pull requests
+                # The following values are accepted: Low, Medium, High, or Critical
+                # JF_MIN_SEVERITY: ""
+
+                # [Optional, Default: eco-system+frogbot@jfrog.com]
+                # Set the email of the commit author
+                # JF_GIT_EMAIL_AUTHOR: ""
+
+                # [Optional]
+                # Set the list of allowed licenses
+                # The full list of licenses can be found in:
+                # https://github.com/jfrog/frogbot/blob/master/docs/licenses.md
+                # JF_ALLOWED_LICENSES: "MIT, Apache-2.0"
+
+              # [Optional]
+              # Avoid adding extra info to pull request comments. that isn't related to the scan findings.
+              # JF_AVOID_EXTRA_MESSAGES: "TRUE"
+
+              # [Optional]
+              # Add a title to pull request comments generated by Frogbot.
+              # JF_PR_COMMENT_TITLE: ""
+              inputs:
+                script: | 
+                  getFrogbotScriptPath=$(if [ -z "$JF_RELEASES_REPO" ]; then echo "https://releases.jfrog.io"; else echo "${JF_URL}/artifactory/${JF_RELEASES_REPO}"; fi)
+                  curl -fLg "$getFrogbotScriptPath/artifactory/frogbot/v2/[RELEASE]/getFrogbot.sh" | sh
+                  ./frogbot cfpr
+            
+            # ---------------------------------------------------------------
+            # Step 6: Build Python wheel
+            # ---------------------------------------------------------------
+            
+            - task: Bash@3
+              displayName: Build Python Wheel
+              inputs:
+                targetType: 'inline'
+                script: |
+                  source ~/.venv/bin/activate
+                  echo "Building Python wheel package..."
+                  python setup.py bdist_wheel
+                  echo "Built wheel files:"
+                  ls -la dist/
+
+            # ---------------------------------------------------------------
+            # Step 7: Upload wheel to nd-python repo via JFrog CLI
+            # ---------------------------------------------------------------
+            - task: JfrogCliV2@1
+              displayName: Upload Wheel to JFrog nd-python
+              inputs:
+                jfrogPlatformConnection: $(JF_AZURE_OIDC)
+                command: |
+                  jf rt upload "dist/*.whl" "$(JF_PYTHON_REPO)/" --project=nd --build-name=$(Build.DefinitionName) --build-number=$(Build.BuildId) --module=myflaskapp
+
+            # ---------------------------------------------------------------
+            # Step 8: Publish build info to JFrog
+            # ---------------------------------------------------------------
+            - task: JfrogCliV2@1
+              displayName: Publish Build Info to JFrog
+              inputs:
+                jfrogPlatformConnection: $(JF_AZURE_OIDC)
+                command: |
+                  jf rt bce  $(Build.DefinitionName) $(Build.BuildId) --project=nd
+                  jf rt bag $(Build.DefinitionName) $(Build.BuildId) --project=nd
+                  jf rt build-publish $(Build.DefinitionName) $(Build.BuildId) --project=nd
+
+            # ---------------------------------------------------------------
+            # Step 9: Publish wheel as pipeline artifact (for traceability)
+            # ---------------------------------------------------------------
+            - task: PublishBuildArtifacts@1
+              displayName: Publish Wheel Artifact
+              inputs:
+                PathtoPublish: 'dist'
+                ArtifactName: 'python-wheel'
+                publishLocation: 'Container'
+
+            # ---------------------------------------------------------------
+            # Step 10: Docker login to JFrog
+            # ---------------------------------------------------------------
+            - task: Bash@3
+              displayName: JFrog CLI Docker Login
+              inputs:
+                targetType: 'inline'
+                script: |
+                  docker login $(JF_URL) -u $(oidc_user) -p $(oidc_token)
+
+            # ---------------------------------------------------------------
+            # Step 11: Build Docker image with the wheel package
+            # ---------------------------------------------------------------
+            - task: JfrogCliV2@1
+              displayName: JFrog CLI Docker Build
+              inputs:
+                jfrogPlatformConnection: $(JF_AZURE_OIDC)
+                command: |
+                  jf docker build --tag "$(JF_DOCKER_URL)/$(JF_DOCKER_REGISTRY)/$(DOCKER_IMAGE):$(tag)" . --project=nd
+
+            # ---------------------------------------------------------------
+            # Step 12: Push Docker image to JFrog Artifactory
+            # ---------------------------------------------------------------
+            - task: JfrogCliV2@1
+              displayName: JFrog CLI Docker Push and build info to JFrog
+              inputs:
+                jfrogPlatformConnection: $(JF_AZURE_OIDC)
+                command: |
+                  jf docker push "$(JF_DOCKER_URL)/$(JF_DOCKER_REGISTRY)/$(DOCKER_IMAGE):$(tag)" --project=nd
+                  jf rt bce  $(Build.DefinitionName) $(Build.BuildId) --project=nd
+                  jf rt bag $(Build.DefinitionName) $(Build.BuildId) --project=nd
+                  jf rt build-publish $(Build.DefinitionName) $(Build.BuildId) --project=nd
+            # ---------------------------------------------------------------
+            # Step 13: Print deployment summary
+            # ---------------------------------------------------------------
+            - task: Bash@3
+              displayName: Print Deployment Summary
+              inputs:
+                targetType: 'inline'
+                script: |
+                  echo "=============================================="
+                  echo "  Deployment Summary"
+                  echo "=============================================="
+                  echo "  Image : $(JF_DOCKER_URL)/$(JF_DOCKER_REGISTRY)/$(DOCKER_IMAGE):$(tag)"
+                  echo "  Wheel : Uploaded to $(JF_PYTHON_REPO)"
+                  echo "  Build : $(Build.DefinitionName) #$(Build.BuildId)"
+                  echo "  Port  : 5000"
+                  echo "  Health: http://<host>:5000/health"
+                  echo "  UI    : http://<host>:5000/"
+                  echo "=============================================="
+                  echo ""
+                  echo "To run locally:"
+                  echo "  docker run -p 5000:5000 $(JF_DOCKER_URL)/$(JF_DOCKER_REGISTRY)/$(DOCKER_IMAGE):$(tag)"
