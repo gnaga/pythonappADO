@@ -5,17 +5,17 @@
   * JFROG Documentation: [JFrog Azure DevOps Extension](https://jfrog.com/help/r/jfrog-integrations-documentation/jfrog-azure-devops-extension)   
   * Azure Documentation: [jfrog-azure-devops-extension](https://github.com/jfrog/jfrog-azure-devops-extension/tree/v2?tab=readme-ov-file#using-openid-connect-oidc-authentication)
 
-### **Install JFROG Azure DevOps Extension** {#install-jfrog-azure-devops-extension}
+### **Install JFROG Azure DevOps Extension** 
 
 * **Action to be performed by the Azure Organization Administrator**  
 * Link: [https://github.com/jfrog/jfrog-azure-devops-extension/tree/v2?ta](https://github.com/jfrog/jfrog-azure-devops-extension/tree/v2?tab=readme-ov-file#Download-and-Installation)[https://github.com/jfrog/jfrog-azure-devops-extension/tree/v2?tab=readme-ov-file\#using-openid-connect-oidc-authentication](https://github.com/jfrog/jfrog-azure-devops-extension/tree/v2?tab=readme-ov-file#using-openid-connect-oidc-authentication)[b=readme-ov-file\#Download-and-Installation](https://github.com/jfrog/jfrog-azure-devops-extension/tree/v2?tab=readme-ov-file#Download-and-Installation)
 
-### **Configuring OIDC Configuration in JFROG Platform** {#configuring-oidc-configuration-in-jfrog-platform}
+### **Configuring OIDC Configuration in JFROG Platform** 
 
 * **Action to be performed by JFROG Platform Administrator**  
 * Link: [https://github.com/jfrog/jfrog-azure-devops-extension/tree/v2?tab=readme-ov-file\#using-openid-connect-oidc-authentication](https://github.com/jfrog/jfrog-azure-devops-extension/tree/v2?tab=readme-ov-file#using-openid-connect-oidc-authentication)
 
-### **Add JFrog Service Connection in ADO** {#add-jfrog-service-connection-in-ado}
+### **Add JFrog Service Connection in ADO** 
 
 * **Action to be performed by Azure Project Administrator**  
 * Go to the Azure Project  
@@ -48,29 +48,29 @@
 }
 ```
 
-## **Sample Azure DevOps pipelines** {#sample-azure-devops-pipelines}
+## **Sample Azure DevOps pipelines** 
 
-### **Azure DevOps Pipeline Changes** {#azure-devops-pipeline-changes}
+### **Azure DevOps Pipeline Changes** 
 
 * **Sample Azure DevOps Pipeline with OIDC configuration:**  
   * Reference Link:   
     * https://github.com/gnaga/pythonappADO
+    * https://github.com/gnaga/pythonappADO/blob/main/azure-pipelines.yaml
 
 **Below are the steps in the pipeline.**
-
-            \# Step 1: Authenticate with JFrog via OIDC  
-            \# Step 2: Get Python Version using task  
-            \# Step 2: Activate Python Virtual Environment and Install Build Tools  
-            \# Step 3: Install dependencies via JFrog CLI (pulls from nd-python)  
-            \# Step 4: Run Jfrog Curation Audit check  
-            \# Step 5: Download and Run Frogbot  
-            \# Step 6: Build Python wheel  
-            \# Step 7: Upload wheel to nd-python repo via JFrog CLI  
-            \# Step 8: Publish build info to JFrog  
-            \# Step 9: Publish wheel as pipeline artifact (for traceability)  
-            \# Step 10: Docker login to JFrog  
-            \# Step 11: Build Docker image with the wheel package  
-            \# Step 12: Push Docker image to JFrog Artifactory  
-            \# Step 13: Print deployment summary  
-
+```
+    # Step 1: Authenticate with JFrog via OIDC  
+    # Step 2: Get Python Version using task or Activate Python Virtual Environment and Install Build Tools  
+    # Step 3: Install dependencies via JFrog CLI (pulls from nd-python)  
+    # Step 4: Run Jfrog Curation Audit check  
+    # Step 5: Download and Run Frogbot  
+    # Step 6: Build Python wheel  
+    # Step 7: Upload wheel to nd-python repo via JFrog CLI  
+    # Step 8: Publish build info to JFrog  
+    # Step 9: Publish wheel as pipeline artifact (for traceability)  
+    # Step 10: Docker login to JFrog  
+    # Step 11: Build Docker image with the wheel package  
+    # Step 12: Push Docker image to JFrog Artifactory  
+    # Step 13: Print deployment summary  
+```
 
