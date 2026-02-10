@@ -1,0 +1,15 @@
+# [Required] JFrog Applications Config version
+# https://github.com/jfrog/jfrog-apps-config/tree/main
+version: "1.0"
+
+modules:
+  - name: myflaskapp
+    type: pip
+    source_root: "."
+    scanners:
+      sca:
+        install-command: "pip install -r requirements.txt"
+#    exclude_scanners:
+#      - secrets
+#      - sast
+#      - iac
