@@ -26,7 +26,7 @@
 * Click on “Next.”  
 * Fill the fields as shown below
 
-* **Provide access for pipeline to create branch and Pull Request**
+### **Provide access for pipeline to create branch and Pull Request**
   * In Azure DevOps:
     * Go to Project Settings > Repos > Repositories > select your repo
     * Click the Security tab
