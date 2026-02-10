@@ -27,14 +27,14 @@
 * Fill the fields as shown below
 
 * **Provide access for pipeline to create branch and Pull Request**
-  In Azure DevOps:
-  • Go to Project Settings > Repos > Repositories > select your repo
-  • Click the Security tab
-  • Find `<YourProject> Build Service (<YourOrg>)` (and/or `Project Collection Build Service (<YourOrg>)`)
-  • Set these permissions to Allow:
-    • Contribute
-    • Create branch
-    • Contribute to pull requests
+  * In Azure DevOps:
+    * Go to Project Settings > Repos > Repositories > select your repo
+    * Click the Security tab
+    * Find `<YourProject> Build Service (<YourOrg>)` (and/or `Project Collection Build Service (<YourOrg>)`)
+    * Set these permissions to Allow:
+       * Contribute
+       * Create branch
+       * Contribute to pull requests
 
 
 ### **Create Identity Mapping in Project OIDC Configuration**
