@@ -1,6 +1,7 @@
 """Main Flask application module."""
 
 from flask import Flask, jsonify, render_template_string
+from flask import request, send_file
 
 app = Flask(__name__)
 
@@ -72,6 +73,10 @@ def health():
     """Health check endpoint."""
     return jsonify({"status": "healthy", "application": "myflaskapp", "version": "1.0.0"})
 
+def serve_file():
+    filename = request.args.get('filename')
+    basepath = 'static/files/'
+    return send_file(basepath + filename)
 
 def main():
     """Entry point for the application."""
@@ -80,3 +85,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
