@@ -1,12 +1,8 @@
 trigger:
 - main
 
-
 pool:
-  name: Default
-  demands:
-  - Agent.Name -equals nagag-mac
-
+  vmImage: ubuntu-latest
 
 variables:
   # Predefined Azure Pipelines variables. There's no need to modify them.
@@ -16,7 +12,7 @@ variables:
   JF_GIT_BASE_BRANCH: $(Build.SourceBranchName)
   JF_GIT_OWNER: $(System.TeamProject)
   JF_GIT_PROVIDER: 'azureRepos'
-  PYTHON_VERSION: '3.11'
+  PYTHON_VERSION: '3.12.12'
   tag: '$(Build.BuildId)'
   JF_URL: 'https://psemea.jfrog.io'
   JF_DOCKER_REGISTRY: 'nd-docker'
@@ -28,12 +24,15 @@ variables:
 jobs:
 - deployment: FLASK_DOCKER_PIPELINE
   displayName: Flask App - Build Wheel, Docker Build & Push
-  environment: 'gcp'  # Just the name, remove resourceType/Name
-
-  pool:
-    name: Default
-    demands:
-    - Agent.Name -equals nagag-mac
+  environment:
+    name: gcp
+    resourceType: virtualMachine
+    resourceName: nagag-linux
+  # environment: 'gcp'  # Just the name, remove resourceType/Name
+  # pool:
+  #   name: Default
+  #   demands:
+  #   - Agent.Name -equals nagag-mac
 
   strategy:
     runOnce:
@@ -70,8 +69,10 @@ jobs:
             # - task: UsePythonVersion@0
             #   displayName: Set up Python $(PYTHON_VERSION)
             #   inputs:
-            #     versionSpec: '$(PYTHON_VERSION)'
+            #     versionSpec: '3.12'
+            #     disableDownloadFromRegistry: false
             #     addToPath: true
+            #     architecture: 'x64'
 
             # ---------------------------------------------------------------
             # Step 2: Activate Python Virtual Environment and Install Build Tools
@@ -81,11 +82,13 @@ jobs:
               inputs:
                 targetType: 'inline'
                 script: |
-                  echo "Activating Python virtual environment from ~/.venv..."
-                  source ~/.venv/bin/activate
+                  echo "Creating Virtual Enviroment and Activating Python virtual environment"
+                  python -m venv venv
+                  source venv/bin/activate
                   echo "Python path: $(which python)"
                   echo "Python version: $(python --version)"
-                  echo "##vso[task.prependpath]$HOME/.venv/bin"
+                  echo "##vso[task.prependpath]$PWD/venv/bin"
+                  echo "${PATH}"
                   echo "Installing build tools..."
                   python -m pip install --upgrade pip
                   pip install setuptools wheel
@@ -105,18 +108,6 @@ jobs:
             # ---------------------------------------------------------------
             # Step 4: Run Jfrog Curation Audit check
             # ---------------------------------------------------------------
-            # - task: PowerShell@2
-            #   inputs:
-            #     targetType: 'inline'
-            #     script: |
-            #       $url = "$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_apis/build/definitions?api-version=7.0"
-            #       Write-Host "URL: $url"
-            #       # Use the environment variable in the script
-            #       $pipeline = Invoke-RestMethod -Uri $url -Headers @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
-            #       Write-Host "Pipeline = $($pipeline | ConvertTo-Json -Depth 100)"
-            #   env:
-            #     # Map the Azure DevOps variable to an environment variable name
-            #     SYSTEM_ACCESSTOKEN: $(System.AccessToken)
             - task: JfrogCliV2@1
               displayName: Run Jfrog Curation Audit check
               inputs:
@@ -239,8 +230,9 @@ jobs:
 
                 # [Optional, Default: "FALSE"]
                 # If TRUE, Frogbot creates a single pull request with all the fixes.
-                # If FALSE, Frogbot creates a separate pull request for each fix.
+                # # If FALSE, Frogbot creates a separate pull request for each fix.
                 JF_GIT_AGGREGATE_FIXES: "TRUE"
+                # JF_SKIP_AUTOFIX: "TRUE"
 
                 # [Optional, Default: "FALSE"]
                 # Handle vulnerabilities with fix versions only
@@ -272,7 +264,15 @@ jobs:
                 script: | 
                   getFrogbotScriptPath=$(if [ -z "$JF_RELEASES_REPO" ]; then echo "https://releases.jfrog.io"; else echo "${JF_URL}/artifactory/${JF_RELEASES_REPO}"; fi)
                   curl -fLg "$getFrogbotScriptPath/artifactory/frogbot/v2/[RELEASE]/getFrogbot.sh" | sh
-                  ./frogbot cfpr
+                  output=$(./frogbot cfpr 2>&1) && echo "$output" || {
+                    if echo "$output" | grep -q "This pull request already targets"; then
+                      echo "$output"
+                      echo "Aggregated fix pull request already exists. Skipping."
+                      exit 0
+                    fi
+                    echo "$output"
+                    exit 1
+                  }
             
             # ---------------------------------------------------------------
             # Step 6: Build Python wheel
